@@ -28,11 +28,14 @@ import java.util.jar.JarFile;
 
 /**
  * Read-only access to the files inside a jar: list entry names, open/read entry
- * content, and check whether a jar / resource / class is already loaded (visible
+ * content, and check whether a jar / resource / class is already loaded
+ * (visible
  * to the class loader).
  * <p>
- * All jar-based methods transparently support the development workspace case where
- * the "jar" is actually a classes directory: entries are then plain files on disk,
+ * All jar-based methods transparently support the development workspace case
+ * where
+ * the "jar" is actually a classes directory: entries are then plain files on
+ * disk,
  * addressed by the same '/'-separated relative names.
  * <p>
  * 对 jar 内部文件的只读访问：列出条目名、打开/读取条目内容，
@@ -90,7 +93,8 @@ public final class JarContents {
                 Enumeration<JarEntry> en = jarFile.entries();
                 while (en.hasMoreElements()) {
                     JarEntry entry = en.nextElement();
-                    if (entry.isDirectory()) continue;
+                    if (entry.isDirectory())
+                        continue;
                     String name = entry.getName();
                     if (matches(name, prefix, suffix)) {
                         names.add(name);
@@ -117,7 +121,8 @@ public final class JarContents {
      *
      * @param ownerClass a class inside the container / 容器内的任意类
      * @param prefix     entry-name prefix filter / 条目名前缀过滤
-     * @param suffix     entry-name suffix filter, {@code null} for none / 后缀过滤，{@code null} 表示不限
+     * @param suffix     entry-name suffix filter, {@code null} for none /
+     *                   后缀过滤，{@code null} 表示不限
      * @return matching entry names, empty if the container cannot be located
      *         （匹配的条目名列表；容器无法定位时为空）
      */
@@ -126,8 +131,10 @@ public final class JarContents {
     }
 
     /**
-     * Batch version of {@link #listEntryNames(File, String, String)}: lists matching entry
-     * names of many containers concurrently. The result maps each container to its own
+     * Batch version of {@link #listEntryNames(File, String, String)}: lists
+     * matching entry
+     * names of many containers concurrently. The result maps each container to its
+     * own
      * entry-name list, preserving the input container order.
      * <p>
      * {@link #listEntryNames(File, String, String)} 的批量版本：并发列出多个容器中匹配的
@@ -136,7 +143,8 @@ public final class JarContents {
      * @param containers the jar files or classes directories / jar 文件或 class 输出目录
      * @param prefix     entry-name prefix filter, empty for no restriction
      *                   （条目名前缀，空串表示不限制）
-     * @param suffix     entry-name suffix filter, {@code null} for none / 后缀过滤，{@code null} 表示不限
+     * @param suffix     entry-name suffix filter, {@code null} for none /
+     *                   后缀过滤，{@code null} 表示不限
      * @return per-container entry names, never {@code null}
      *         （各容器的条目名映射，恒非 {@code null}）
      */
@@ -188,7 +196,8 @@ public final class JarContents {
     // === === === Entry content / 条目内容 === === ===
 
     /**
-     * Opens a stream over an entry's content. The returned stream keeps the underlying
+     * Opens a stream over an entry's content. The returned stream keeps the
+     * underlying
      * {@link JarFile} open and closes it together when the stream itself is closed,
      * so callers only need to close the returned stream.
      * <p>
@@ -299,8 +308,10 @@ public final class JarContents {
 
     /**
      * Checks whether a resource is loaded, i.e. reachable through the runtime class
-     * loader ({@link Launch#classLoader} when available). A {@code true} result means
-     * some classpath source — this mod's jar, a nested jar, or any other mod — provides it.
+     * loader ({@link Launch#classLoader} when available). A {@code true} result
+     * means
+     * some classpath source — this mod's jar, a nested jar, or any other mod —
+     * provides it.
      * <p>
      * 检查资源是否已被加载，即能否通过运行时类加载器
      * （可用时为 {@link Launch#classLoader}）访问到。返回 {@code true} 表示
@@ -321,14 +332,16 @@ public final class JarContents {
     }
 
     /**
-     * Checks whether the given jar file is loaded on the classpath, by comparing its
+     * Checks whether the given jar file is loaded on the classpath, by comparing
+     * its
      * canonical path against the URLs of the runtime {@link URLClassLoader} chain.
      * <p>
      * 通过与运行时 {@link URLClassLoader} 链上各 URL 的规范路径比对，
      * 检查给定 jar 文件是否已挂载到类路径上。
      *
      * @param jar the jar file to check / 待检查的 jar 文件
-     * @return {@code true} if the jar is on the classpath / jar 已在类路径上则为 {@code true}
+     * @return {@code true} if the jar is on the classpath / jar 已在类路径上则为
+     *         {@code true}
      */
     public static boolean isJarLoaded(File jar) {
         if (jar == null) {
@@ -340,7 +353,8 @@ public final class JarContents {
         } catch (IOException e) {
             canonical = jar.getAbsolutePath();
         }
-        // Walk the loader parent chain so both LaunchClassLoader and the app loader are covered.
+        // Walk the loader parent chain so both LaunchClassLoader and the app loader are
+        // covered.
         // 沿加载器父链遍历，同时覆盖 LaunchClassLoader 与应用类加载器。
         ClassLoader cl = (Launch.classLoader != null)
                 ? Launch.classLoader
@@ -374,7 +388,8 @@ public final class JarContents {
      * 通过反射调用 {@code ClassLoader#findLoadedClass} 实现。
      *
      * @param className fully qualified binary class name / 完全限定的二进制类名
-     * @return {@code true} if already defined; {@code false} if not, or if the check
+     * @return {@code true} if already defined; {@code false} if not, or if the
+     *         check
      *         itself is unavailable（已定义则为 {@code true}；未定义或检测不可用时为 {@code false}）
      */
     public static boolean isClassLoaded(String className) {
@@ -406,7 +421,7 @@ public final class JarContents {
      * 递归收集目录下以 '/' 分隔的相对文件名。
      */
     private static void collectFileNames(File dir, String relative, List<String> out,
-                                         String prefix, String suffix) {
+            String prefix, String suffix) {
         File[] children = dir.listFiles();
         if (children == null) {
             return;

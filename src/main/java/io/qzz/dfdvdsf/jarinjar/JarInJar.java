@@ -29,13 +29,18 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * Jar-in-Jar support: discovers jars nested inside a container jar (by convention under
- * {@value #DEFAULT_NESTED_DIR}), extracts them into a local cache directory with
- * SHA-256 based deduplication, and injects them into the {@link LaunchClassLoader}
+ * Jar-in-Jar support: discovers jars nested inside a container jar (by
+ * convention under
+ * {@value #DEFAULT_NESTED_DIR}), extracts them into a local cache directory
+ * with
+ * SHA-256 based deduplication, and injects them into the
+ * {@link LaunchClassLoader}
  * so their classes become loadable at runtime.
  * <p>
- * Also transparently supports the development workspace case where the "container"
- * is a classes directory instead of a jar: nested jars are then plain files under
+ * Also transparently supports the development workspace case where the
+ * "container"
+ * is a classes directory instead of a jar: nested jars are then plain files
+ * under
  * that directory and are injected directly without extraction.
  * <p>
  * 嵌套 Jar（Jar-in-Jar）支持：按约定从容器 jar 的 {@value #DEFAULT_NESTED_DIR} 目录下
@@ -71,14 +76,17 @@ public final class JarInJar {
     // === === === High-level one-shot API / 高层一步式 API === === ===
 
     /**
-     * One-shot entry point: locates the jar containing {@code ownerClass}, extracts every
-     * nested jar under {@value #DEFAULT_NESTED_DIR} into the default cache directory, and
+     * One-shot entry point: locates the jar containing {@code ownerClass}, extracts
+     * every
+     * nested jar under {@value #DEFAULT_NESTED_DIR} into the default cache
+     * directory, and
      * injects them into the {@link LaunchClassLoader}. Safe to call multiple times.
      * <p>
      * 一步式入口：定位 {@code ownerClass} 所在的 jar，将 {@value #DEFAULT_NESTED_DIR}
      * 下的全部嵌套 jar 提取到默认缓存目录并注入 {@link LaunchClassLoader}。可重复调用。
      *
-     * @param ownerClass a class inside the container jar (typically the mod main class)
+     * @param ownerClass a class inside the container jar (typically the mod main
+     *                   class)
      *                   （容器 jar 内的任意类，通常传模组主类）
      * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
      */
@@ -87,12 +95,14 @@ public final class JarInJar {
     }
 
     /**
-     * Same as {@link #loadNestedJars(Class)} with a custom nested directory and cache directory.
+     * Same as {@link #loadNestedJars(Class)} with a custom nested directory and
+     * cache directory.
      * <p>
      * 与 {@link #loadNestedJars(Class)} 相同，但可自定义嵌套目录与缓存目录。
      *
      * @param ownerClass a class inside the container jar / 容器 jar 内的任意类
-     * @param nestedDir  entry prefix of nested jars, e.g. {@code "META-INF/jarjar/"}
+     * @param nestedDir  entry prefix of nested jars, e.g.
+     *                   {@code "META-INF/jarjar/"}
      *                   （嵌套 jar 的条目前缀，如 {@code "META-INF/jarjar/"}）
      * @param cacheDir   directory to extract into / 提取目标缓存目录
      * @return the injected jar files / 已注入的 jar 文件列表
@@ -127,13 +137,15 @@ public final class JarInJar {
     /**
      * Batch one-shot entry point: locates the container of every given owner class,
      * discovers/extracts their nested jars concurrently, and injects them into the
-     * {@link LaunchClassLoader}. Containers that resolve to the same file are processed
+     * {@link LaunchClassLoader}. Containers that resolve to the same file are
+     * processed
      * only once. Safe to call multiple times.
      * <p>
      * 批量一步式入口：定位每个给定类所在的容器，并发发现/提取其中的嵌套 jar 并注入
      * {@link LaunchClassLoader}。解析到同一文件的容器只会被处理一次。可重复调用。
      *
-     * @param ownerClasses classes inside the container jars (typically mod main classes)
+     * @param ownerClasses classes inside the container jars (typically mod main
+     *                     classes)
      *                     （容器 jar 内的类，通常传模组主类）
      * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
      */
@@ -142,7 +154,8 @@ public final class JarInJar {
     }
 
     /**
-     * Same as {@link #loadNestedJars(Collection)} with a custom nested directory and cache
+     * Same as {@link #loadNestedJars(Collection)} with a custom nested directory
+     * and cache
      * directory.
      * <p>
      * 与 {@link #loadNestedJars(Collection)} 相同，但可自定义嵌套目录与缓存目录。
@@ -176,8 +189,10 @@ public final class JarInJar {
 
     /**
      * Batch one-shot entry point that takes container files directly: discovers and
-     * extracts nested jars under {@code nestedDir} concurrently, then injects them into
-     * the {@link LaunchClassLoader}. Containers may be jars (packaged) or directories
+     * extracts nested jars under {@code nestedDir} concurrently, then injects them
+     * into
+     * the {@link LaunchClassLoader}. Containers may be jars (packaged) or
+     * directories
      * (dev workspace).
      * <p>
      * 直接接收容器文件列表的批量一步式入口：并发发现并提取 {@code nestedDir} 下的嵌套
@@ -201,8 +216,10 @@ public final class JarInJar {
     // === === === Discovery / 发现 === === ===
 
     /**
-     * Lists entry names of nested jars inside the container jar under the given prefix.
-     * Only direct {@code .jar}/{@code .zip} entries are returned; directories are skipped.
+     * Lists entry names of nested jars inside the container jar under the given
+     * prefix.
+     * Only direct {@code .jar}/{@code .zip} entries are returned; directories are
+     * skipped.
      * <p>
      * 列出容器 jar 中指定前缀目录下的嵌套 jar 条目名。
      * 仅返回 {@code .jar}/{@code .zip} 条目，目录条目会被跳过。
@@ -225,7 +242,8 @@ public final class JarInJar {
     }
 
     /**
-     * Shared-JarFile core of {@link #listNestedJarEntries(File, String)}; the caller owns
+     * Shared-JarFile core of {@link #listNestedJarEntries(File, String)}; the
+     * caller owns
      * the JarFile's lifetime. / 共享 JarFile 版的核心实现；JarFile 生命周期由调用方管理。
      */
     private static List<String> listNestedJarEntries(JarFile jarFile, String nestedDir) {
@@ -233,7 +251,8 @@ public final class JarInJar {
         Enumeration<JarEntry> en = jarFile.entries();
         while (en.hasMoreElements()) {
             JarEntry entry = en.nextElement();
-            if (entry.isDirectory()) continue;
+            if (entry.isDirectory())
+                continue;
             String name = entry.getName();
             if (name.startsWith(nestedDir) && isJarLike(name)) {
                 entries.add(name);
@@ -243,7 +262,8 @@ public final class JarInJar {
     }
 
     /**
-     * Dev-workspace counterpart of {@link #listNestedJarEntries(File, String)}: lists jar
+     * Dev-workspace counterpart of {@link #listNestedJarEntries(File, String)}:
+     * lists jar
      * files under {@code containerDir/nestedDir} on disk.
      * <p>
      * {@link #listNestedJarEntries(File, String)} 的开发环境对应实现：
@@ -310,8 +330,10 @@ public final class JarInJar {
     }
 
     /**
-     * Batch version of {@link #extractAllNestedJars(File, String, File)}: processes all
-     * given containers concurrently. Directory containers (dev workspace) are listed
+     * Batch version of {@link #extractAllNestedJars(File, String, File)}: processes
+     * all
+     * given containers concurrently. Directory containers (dev workspace) are
+     * listed
      * directly; jar containers are scanned and extracted in parallel, sharing one
      * {@link JarFile} handle per container to bound the number of open handles.
      * <p>
@@ -319,7 +341,8 @@ public final class JarInJar {
      * 容器。目录容器（开发环境）直接列出；jar 容器并发扫描并提取，每个容器共享一个
      * {@link JarFile} 句柄，以约束打开句柄的总数。
      *
-     * @param containerJars the container files (jars or directories) / 容器文件（jar 或目录）
+     * @param containerJars the container files (jars or directories) / 容器文件（jar
+     *                      或目录）
      * @param nestedDir     entry prefix of nested jars / 嵌套 jar 的条目前缀
      * @param cacheDir      target cache directory / 目标缓存目录
      * @return extracted files (existing cache hits included), never {@code null}
@@ -396,7 +419,8 @@ public final class JarInJar {
 
     /**
      * Extracts a single nested jar entry into {@code cacheDir}, using content-hash
-     * deduplication: the output is named {@code <basename>-<sha256[0..8]>.jar}, and if a
+     * deduplication: the output is named {@code <basename>-<sha256[0..8]>.jar}, and
+     * if a
      * file with that name already exists it is reused without rewriting.
      * <p>
      * 提取单个嵌套 jar 条目到 {@code cacheDir}，采用内容哈希去重：
@@ -421,8 +445,10 @@ public final class JarInJar {
     }
 
     /**
-     * Shared-JarFile core of {@link #extractNestedJar(File, String, File)}; the caller owns
-     * the JarFile's lifetime, so this variant never closes it. Safe for concurrent use as
+     * Shared-JarFile core of {@link #extractNestedJar(File, String, File)}; the
+     * caller owns
+     * the JarFile's lifetime, so this variant never closes it. Safe for concurrent
+     * use as
      * long as different threads read different entries of the same JarFile.
      * <p>
      * 共享 JarFile 版的核心实现；JarFile 生命周期由调用方管理，本方法不关闭它。
@@ -504,8 +530,10 @@ public final class JarInJar {
     // === === === Classpath injection / 类路径注入 === === ===
 
     /**
-     * Injects a jar into the {@link LaunchClassLoader} (launchwrapper) so its classes and
-     * resources become visible to mod code. Duplicate calls for the same file are no-ops.
+     * Injects a jar into the {@link LaunchClassLoader} (launchwrapper) so its
+     * classes and
+     * resources become visible to mod code. Duplicate calls for the same file are
+     * no-ops.
      * <p>
      * 将 jar 注入 {@link LaunchClassLoader}（launchwrapper），使其类与资源对模组代码可见。
      * 同一文件重复调用为无操作。
@@ -527,7 +555,8 @@ public final class JarInJar {
             } else if (Launch.classLoader != null) {
                 Launch.classLoader.addURL(url);
             } else {
-                // Outside launchwrapper (unit tests etc.): try reflective URLClassLoader#addURL.
+                // Outside launchwrapper (unit tests etc.): try reflective
+                // URLClassLoader#addURL.
                 // 非 launchwrapper 环境（如单元测试）：反射调用 URLClassLoader#addURL 兜底。
                 if (!injectIntoUrlClassLoader(cl, url)) {
                     INJECTED.remove(key);
@@ -564,8 +593,10 @@ public final class JarInJar {
     // === === === Misc helpers / 杂项辅助 === === ===
 
     /**
-     * Default extraction cache: {@code <gameDir>/jarutils/jarinjar}, falling back to
-     * {@code <user.dir>/jarutils/jarinjar} when launchwrapper's game dir is unavailable.
+     * Default extraction cache: {@code <gameDir>/jarutils/jarinjar}, falling back
+     * to
+     * {@code <user.dir>/jarutils/jarinjar} when launchwrapper's game dir is
+     * unavailable.
      * <p>
      * 默认提取缓存目录：{@code <游戏目录>/jarutils/jarinjar}；
      * 当 launchwrapper 未提供游戏目录时回退到 {@code <user.dir>/jarutils/jarinjar}。
@@ -623,7 +654,10 @@ public final class JarInJar {
 
     // === === === Internal batch structures / 批量处理内部结构 === === ===
 
-    /** Container jar plus the nested entry names discovered inside it. / 容器 jar 及其内部发现的嵌套条目名。 */
+    /**
+     * Container jar plus the nested entry names discovered inside it. / 容器 jar
+     * 及其内部发现的嵌套条目名。
+     */
     private static final class ContainerEntries {
         final File container;
         final List<String> entries;
@@ -634,7 +668,10 @@ public final class JarInJar {
         }
     }
 
-    /** One extraction request: a single nested entry inside a given container. / 单个提取请求：某容器内的一个嵌套条目。 */
+    /**
+     * One extraction request: a single nested entry inside a given container. /
+     * 单个提取请求：某容器内的一个嵌套条目。
+     */
     private static final class ExtractRequest {
         final File container;
         final String entryName;

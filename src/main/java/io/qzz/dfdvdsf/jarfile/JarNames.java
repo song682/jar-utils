@@ -107,7 +107,8 @@ public final class JarNames {
      * 便于扫描目录中的 mod jar。
      *
      * @param file the file to check / 待检查的文件
-     * @return {@code true} if an existing jar-like file / 存在且形如 jar/zip 则为 {@code true}
+     * @return {@code true} if an existing jar-like file / 存在且形如 jar/zip 则为
+     *         {@code true}
      */
     public static boolean isJarFile(File file) {
         return file != null && file.isFile() && isJarLike(file.getName());

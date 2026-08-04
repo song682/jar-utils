@@ -40,8 +40,10 @@ public final class Parallel {
     }
 
     /**
-     * Runs {@code fn} over every input concurrently and returns the results in the same
-     * order as the inputs. {@code null} inputs are passed through as-is. Any task failure
+     * Runs {@code fn} over every input concurrently and returns the results in the
+     * same
+     * order as the inputs. {@code null} inputs are passed through as-is. Any task
+     * failure
      * aborts the whole call with the underlying cause unwrapped.
      * <p>
      * 对每个输入并发执行 {@code fn}，返回结果且顺序与输入一致。
@@ -59,7 +61,8 @@ public final class Parallel {
         if (inputs == null || inputs.isEmpty()) {
             return results;
         }
-        // Capture the pool once: a concurrent setThreadCount() swap must not mix submissions.
+        // Capture the pool once: a concurrent setThreadCount() swap must not mix
+        // submissions.
         // 一次性捕获线程池引用：并发调用 setThreadCount() 换池时不允许提交到旧池。
         ExecutorService pool = executor;
         List<Future<R>> futures = new ArrayList<Future<R>>(inputs.size());
@@ -97,7 +100,8 @@ public final class Parallel {
     }
 
     /**
-     * Reconfigures the shared pool size. The old pool is shut down gracefully after its
+     * Reconfigures the shared pool size. The old pool is shut down gracefully after
+     * its
      * queued tasks complete; do not call this while a batch operation is running.
      * <p>
      * 重新配置共享线程池大小。旧线程池在排队任务执行完毕后优雅关闭；
