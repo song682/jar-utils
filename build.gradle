@@ -97,6 +97,8 @@ dependencies {
 
     implementation "com.github.song682:CatFrame:v0.5.8"
     implementation fileTree(dir: 'lib', includes: ['*.jar'])
+
+    testImplementation 'junit:junit:4.13.2'
 }
 
 def dependenciesList = []
@@ -219,6 +221,7 @@ allprojects {
     gradle.projectsEvaluated {
         tasks.withType(JavaCompile).tap {
             configureEach {
+                options.encoding = 'UTF-8'
                 options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation" << "-Xlint:all"
             }
         }
