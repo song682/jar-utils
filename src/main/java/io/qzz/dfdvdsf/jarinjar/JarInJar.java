@@ -1,5 +1,6 @@
 package io.qzz.dfdvdsf.jarinjar;
 
+import io.qzz.dfdvdsf.concurrent.Parallel;
 import net.minecraft.launchwrapper.Launch;
 import net.minecraft.launchwrapper.LaunchClassLoader;
 import org.apache.logging.log4j.LogManager;
@@ -14,12 +15,16 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -39,6 +44,9 @@ import java.util.jar.JarFile;
  * <p>
  * 同时透明兼容开发环境：当“容器”是 class 输出目录而非 jar 时，
  * 内嵌 jar 即目录下的普通文件，直接注入而无需提取。
+ * <p>
+ * 批量入口会对多个容器并发执行发现与提取（每个容器共享一个 JarFile 句柄），
+ * 类路径注入保持串行，以避免 LaunchClassLoader 的并发竞态。
  */
 public final class JarInJar {
 
@@ -116,6 +124,80 @@ public final class JarInJar {
         return injected;
     }
 
+    /**
+     * Batch one-shot entry point: locates the container of every given owner class,
+     * discovers/extracts their nested jars concurrently, and injects them into the
+     * {@link LaunchClassLoader}. Containers that resolve to the same file are processed
+     * only once. Safe to call multiple times.
+     * <p>
+     * 批量一步式入口：定位每个给定类所在的容器，并发发现/提取其中的嵌套 jar 并注入
+     * {@link LaunchClassLoader}。解析到同一文件的容器只会被处理一次。可重复调用。
+     *
+     * @param ownerClasses classes inside the container jars (typically mod main classes)
+     *                     （容器 jar 内的类，通常传模组主类）
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJars(Collection<Class<?>> ownerClasses) {
+        return loadNestedJars(ownerClasses, DEFAULT_NESTED_DIR, getDefaultCacheDir());
+    }
+
+    /**
+     * Same as {@link #loadNestedJars(Collection)} with a custom nested directory and cache
+     * directory.
+     * <p>
+     * 与 {@link #loadNestedJars(Collection)} 相同，但可自定义嵌套目录与缓存目录。
+     *
+     * @param ownerClasses classes inside the container jars / 容器 jar 内的类
+     * @param nestedDir    entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir     directory to extract into / 提取目标缓存目录
+     * @return the injected jar files / 已注入的 jar 文件列表
+     */
+    public static List<File> loadNestedJars(Collection<Class<?>> ownerClasses, String nestedDir, File cacheDir) {
+        List<File> containers = new ArrayList<File>();
+        Set<String> seen = new HashSet<String>();
+        for (Class<?> owner : ownerClasses) {
+            File container = JarLocator.getContainingFile(owner);
+            if (container == null) {
+                LOGGER.warn("Cannot locate container of {}; skip jar-in-jar loading", owner.getName());
+                continue;
+            }
+            String key;
+            try {
+                key = container.getCanonicalPath();
+            } catch (IOException e) {
+                key = container.getAbsolutePath();
+            }
+            if (seen.add(key)) {
+                containers.add(container);
+            }
+        }
+        return loadNestedJarsFromJars(containers, nestedDir, cacheDir);
+    }
+
+    /**
+     * Batch one-shot entry point that takes container files directly: discovers and
+     * extracts nested jars under {@code nestedDir} concurrently, then injects them into
+     * the {@link LaunchClassLoader}. Containers may be jars (packaged) or directories
+     * (dev workspace).
+     * <p>
+     * 直接接收容器文件列表的批量一步式入口：并发发现并提取 {@code nestedDir} 下的嵌套
+     * jar，随后注入类路径。容器可以是 jar（打包环境）或目录（开发环境）。
+     *
+     * @param containerJars the container files / 容器文件列表
+     * @param nestedDir     entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir      directory to extract into / 提取目标缓存目录
+     * @return the injected jar files / 已注入的 jar 文件列表
+     */
+    public static List<File> loadNestedJarsFromJars(Collection<File> containerJars, String nestedDir, File cacheDir) {
+        List<File> injected = new ArrayList<File>();
+        for (File jar : extractAllNestedJars(containerJars, nestedDir, cacheDir)) {
+            if (injectIntoClasspath(jar)) {
+                injected.add(jar);
+            }
+        }
+        return injected;
+    }
+
     // === === === Discovery / 发现 === === ===
 
     /**
@@ -131,23 +213,31 @@ public final class JarInJar {
      * @return matching entry names, never {@code null} / 匹配的条目名列表，恒非 {@code null}
      */
     public static List<String> listNestedJarEntries(File containerJar, String nestedDir) {
-        List<String> entries = new ArrayList<String>();
-        JarFile jarFile = null;
+        JarFile jarFile = openQuietly(containerJar);
+        if (jarFile == null) {
+            return new ArrayList<String>();
+        }
         try {
-            jarFile = new JarFile(containerJar);
-            Enumeration<JarEntry> en = jarFile.entries();
-            while (en.hasMoreElements()) {
-                JarEntry entry = en.nextElement();
-                if (entry.isDirectory()) continue;
-                String name = entry.getName();
-                if (name.startsWith(nestedDir) && isJarLike(name)) {
-                    entries.add(name);
-                }
-            }
-        } catch (IOException e) {
-            LOGGER.error("Failed to scan nested jars in {}", containerJar, e);
+            return listNestedJarEntries(jarFile, nestedDir);
         } finally {
             closeQuietly(jarFile);
+        }
+    }
+
+    /**
+     * Shared-JarFile core of {@link #listNestedJarEntries(File, String)}; the caller owns
+     * the JarFile's lifetime. / 共享 JarFile 版的核心实现；JarFile 生命周期由调用方管理。
+     */
+    private static List<String> listNestedJarEntries(JarFile jarFile, String nestedDir) {
+        List<String> entries = new ArrayList<String>();
+        Enumeration<JarEntry> en = jarFile.entries();
+        while (en.hasMoreElements()) {
+            JarEntry entry = en.nextElement();
+            if (entry.isDirectory()) continue;
+            String name = entry.getName();
+            if (name.startsWith(nestedDir) && isJarLike(name)) {
+                entries.add(name);
+            }
         }
         return entries;
     }
@@ -191,10 +281,114 @@ public final class JarInJar {
      */
     public static List<File> extractAllNestedJars(File containerJar, String nestedDir, File cacheDir) {
         List<File> extracted = new ArrayList<File>();
-        for (String entryName : listNestedJarEntries(containerJar, nestedDir)) {
-            File out = extractNestedJar(containerJar, entryName, cacheDir);
-            if (out != null) {
-                extracted.add(out);
+        JarFile jarFile = openQuietly(containerJar);
+        if (jarFile == null) {
+            return extracted;
+        }
+        try {
+            List<String> entries = listNestedJarEntries(jarFile, nestedDir);
+            if (entries.isEmpty()) {
+                return extracted;
+            }
+            // Concurrent extraction over the single shared JarFile handle.
+            // 基于单个共享 JarFile 句柄的并发提取。
+            List<File> results = Parallel.map(entries, new Function<String, File>() {
+                @Override
+                public File apply(String entryName) {
+                    return extractNestedJar(jarFile, entryName, cacheDir);
+                }
+            });
+            for (File file : results) {
+                if (file != null) {
+                    extracted.add(file);
+                }
+            }
+        } finally {
+            closeQuietly(jarFile);
+        }
+        return extracted;
+    }
+
+    /**
+     * Batch version of {@link #extractAllNestedJars(File, String, File)}: processes all
+     * given containers concurrently. Directory containers (dev workspace) are listed
+     * directly; jar containers are scanned and extracted in parallel, sharing one
+     * {@link JarFile} handle per container to bound the number of open handles.
+     * <p>
+     * {@link #extractAllNestedJars(File, String, File)} 的批量版本：并发处理所有给定
+     * 容器。目录容器（开发环境）直接列出；jar 容器并发扫描并提取，每个容器共享一个
+     * {@link JarFile} 句柄，以约束打开句柄的总数。
+     *
+     * @param containerJars the container files (jars or directories) / 容器文件（jar 或目录）
+     * @param nestedDir     entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir      target cache directory / 目标缓存目录
+     * @return extracted files (existing cache hits included), never {@code null}
+     *         （提取出的文件列表，含缓存命中；恒非 {@code null}）
+     */
+    public static List<File> extractAllNestedJars(Collection<File> containerJars, String nestedDir, File cacheDir) {
+        List<File> extracted = new ArrayList<File>();
+        if (containerJars == null || containerJars.isEmpty()) {
+            return extracted;
+        }
+        // Dev-workspace containers are plain directories: list them directly (cheap).
+        // 开发环境的容器是普通目录：直接列出（开销小）。
+        List<File> jarContainers = new ArrayList<File>();
+        for (File container : containerJars) {
+            if (container == null) {
+                continue;
+            }
+            if (container.isDirectory()) {
+                extracted.addAll(listNestedJarsInDirectory(container, nestedDir));
+            } else if (container.isFile()) {
+                jarContainers.add(container);
+            } else {
+                LOGGER.warn("Container {} does not exist; skip", container);
+            }
+        }
+        if (jarContainers.isEmpty()) {
+            return extracted;
+        }
+
+        // Stage 1: discover nested entries of every jar container concurrently.
+        // 第一阶段：并发发现每个 jar 容器中的嵌套条目。
+        List<ContainerEntries> discovered = Parallel.map(jarContainers, new Function<File, ContainerEntries>() {
+            @Override
+            public ContainerEntries apply(File container) {
+                return new ContainerEntries(container, listNestedJarEntries(container, nestedDir));
+            }
+        });
+
+        // Stage 2: extract every entry concurrently, sharing one JarFile per container.
+        // 第二阶段：并发提取全部条目；每个容器共享一个 JarFile。
+        Map<File, JarFile> sharedJars = new ConcurrentHashMap<File, JarFile>();
+        List<ExtractRequest> requests = new ArrayList<ExtractRequest>();
+        try {
+            for (ContainerEntries ce : discovered) {
+                JarFile jarFile = openQuietly(ce.container);
+                if (jarFile == null) {
+                    continue;
+                }
+                sharedJars.put(ce.container, jarFile);
+                for (String entryName : ce.entries) {
+                    requests.add(new ExtractRequest(ce.container, entryName));
+                }
+            }
+            if (!requests.isEmpty()) {
+                List<File> results = Parallel.map(requests, new Function<ExtractRequest, File>() {
+                    @Override
+                    public File apply(ExtractRequest request) {
+                        return extractNestedJar(sharedJars.get(request.container), request.entryName, cacheDir);
+                    }
+                });
+                for (File file : results) {
+                    if (file != null) {
+                        extracted.add(file);
+                    }
+                }
+            }
+        } finally {
+            for (JarFile jarFile : sharedJars.values()) {
+                closeQuietly(jarFile);
             }
         }
         return extracted;
@@ -215,12 +409,30 @@ public final class JarInJar {
      *         （提取出的或缓存命中的文件；失败时返回 {@code null}）
      */
     public static File extractNestedJar(File containerJar, String entryName, File cacheDir) {
-        JarFile jarFile = null;
+        JarFile jarFile = openQuietly(containerJar);
+        if (jarFile == null) {
+            return null;
+        }
         try {
-            jarFile = new JarFile(containerJar);
+            return extractNestedJar(jarFile, entryName, cacheDir);
+        } finally {
+            closeQuietly(jarFile);
+        }
+    }
+
+    /**
+     * Shared-JarFile core of {@link #extractNestedJar(File, String, File)}; the caller owns
+     * the JarFile's lifetime, so this variant never closes it. Safe for concurrent use as
+     * long as different threads read different entries of the same JarFile.
+     * <p>
+     * 共享 JarFile 版的核心实现；JarFile 生命周期由调用方管理，本方法不关闭它。
+     * 只要不同线程读取的是同一 JarFile 的不同条目，即为线程安全。
+     */
+    private static File extractNestedJar(JarFile jarFile, String entryName, File cacheDir) {
+        try {
             JarEntry entry = jarFile.getJarEntry(entryName);
             if (entry == null) {
-                LOGGER.warn("Entry {} not found in {}", entryName, containerJar);
+                LOGGER.warn("Entry {} not found in {}", entryName, jarFile.getName());
                 return null;
             }
             if (!cacheDir.isDirectory() && !cacheDir.mkdirs()) {
@@ -284,10 +496,8 @@ public final class JarInJar {
             LOGGER.info("Extracted nested jar {} -> {}", entryName, target);
             return target;
         } catch (Exception e) {
-            LOGGER.error("Failed to extract nested jar {} from {}", entryName, containerJar, e);
+            LOGGER.error("Failed to extract nested jar {} from {}", entryName, jarFile.getName(), e);
             return null;
-        } finally {
-            closeQuietly(jarFile);
         }
     }
 
@@ -382,6 +592,19 @@ public final class JarInJar {
         return sb.toString();
     }
 
+    /**
+     * Opens a JarFile, logging and returning {@code null} on failure.
+     * 打开 JarFile；失败时记录日志并返回 {@code null}。
+     */
+    private static JarFile openQuietly(File jarFile) {
+        try {
+            return new JarFile(jarFile);
+        } catch (IOException e) {
+            LOGGER.error("Failed to open {}", jarFile, e);
+            return null;
+        }
+    }
+
     private static void closeQuietly(JarFile jarFile) {
         if (jarFile != null) {
             try {
@@ -395,6 +618,30 @@ public final class JarInJar {
     private static void deleteQuietly(File file) {
         if (file != null && !file.delete()) {
             file.deleteOnExit();
+        }
+    }
+
+    // === === === Internal batch structures / 批量处理内部结构 === === ===
+
+    /** Container jar plus the nested entry names discovered inside it. / 容器 jar 及其内部发现的嵌套条目名。 */
+    private static final class ContainerEntries {
+        final File container;
+        final List<String> entries;
+
+        ContainerEntries(File container, List<String> entries) {
+            this.container = container;
+            this.entries = entries;
+        }
+    }
+
+    /** One extraction request: a single nested entry inside a given container. / 单个提取请求：某容器内的一个嵌套条目。 */
+    private static final class ExtractRequest {
+        final File container;
+        final String entryName;
+
+        ExtractRequest(File container, String entryName) {
+            this.container = container;
+            this.entryName = entryName;
         }
     }
 }

@@ -1,5 +1,6 @@
 package io.qzz.dfdvdsf.jarfile;
 
+import io.qzz.dfdvdsf.concurrent.Parallel;
 import io.qzz.dfdvdsf.jarinjar.JarLocator;
 import net.minecraft.launchwrapper.Launch;
 import org.apache.logging.log4j.LogManager;
@@ -16,8 +17,12 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -118,6 +123,39 @@ public final class JarContents {
      */
     public static List<String> listEntryNames(Class<?> ownerClass, String prefix, String suffix) {
         return listEntryNames(JarLocator.getContainingFile(ownerClass), prefix, suffix);
+    }
+
+    /**
+     * Batch version of {@link #listEntryNames(File, String, String)}: lists matching entry
+     * names of many containers concurrently. The result maps each container to its own
+     * entry-name list, preserving the input container order.
+     * <p>
+     * {@link #listEntryNames(File, String, String)} 的批量版本：并发列出多个容器中匹配的
+     * 条目名。结果以 容器 → 条目名列表 的形式返回，保持容器输入顺序。
+     *
+     * @param containers the jar files or classes directories / jar 文件或 class 输出目录
+     * @param prefix     entry-name prefix filter, empty for no restriction
+     *                   （条目名前缀，空串表示不限制）
+     * @param suffix     entry-name suffix filter, {@code null} for none / 后缀过滤，{@code null} 表示不限
+     * @return per-container entry names, never {@code null}
+     *         （各容器的条目名映射，恒非 {@code null}）
+     */
+    public static Map<File, List<String>> listEntryNames(Collection<File> containers, String prefix, String suffix) {
+        Map<File, List<String>> perContainer = new LinkedHashMap<File, List<String>>();
+        if (containers == null || containers.isEmpty()) {
+            return perContainer;
+        }
+        List<File> inputs = new ArrayList<File>(containers);
+        List<List<String>> results = Parallel.map(inputs, new Function<File, List<String>>() {
+            @Override
+            public List<String> apply(File container) {
+                return listEntryNames(container, prefix, suffix);
+            }
+        });
+        for (int i = 0; i < inputs.size(); i++) {
+            perContainer.put(inputs.get(i), results.get(i));
+        }
+        return perContainer;
     }
 
     /**
