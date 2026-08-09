@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -166,25 +167,7 @@ public final class JarInJar {
      * @return the injected jar files / 已注入的 jar 文件列表
      */
     public static List<File> loadNestedJars(Collection<Class<?>> ownerClasses, String nestedDir, File cacheDir) {
-        List<File> containers = new ArrayList<File>();
-        Set<String> seen = new HashSet<String>();
-        for (Class<?> owner : ownerClasses) {
-            File container = JarLocator.getContainingFile(owner);
-            if (container == null) {
-                LOGGER.warn("Cannot locate container of {}; skip jar-in-jar loading", owner.getName());
-                continue;
-            }
-            String key;
-            try {
-                key = container.getCanonicalPath();
-            } catch (IOException e) {
-                key = container.getAbsolutePath();
-            }
-            if (seen.add(key)) {
-                containers.add(container);
-            }
-        }
-        return loadNestedJarsFromJars(containers, nestedDir, cacheDir);
+        return loadNestedJarsFromJars(resolveContainers(ownerClasses), nestedDir, cacheDir);
     }
 
     /**
@@ -206,6 +189,99 @@ public final class JarInJar {
     public static List<File> loadNestedJarsFromJars(Collection<File> containerJars, String nestedDir, File cacheDir) {
         List<File> injected = new ArrayList<File>();
         for (File jar : extractAllNestedJars(containerJars, nestedDir, cacheDir)) {
+            if (injectIntoClasspath(jar)) {
+                injected.add(jar);
+            }
+        }
+        return injected;
+    }
+
+    // === === === Recursive one-shot API / 递归一步式 API === === ===
+
+    /**
+     * Recursive one-shot entry point: like {@link #loadNestedJars(Class)} but keeps
+     * descending — every nested jar that itself contains nested jars under
+     * {@value #DEFAULT_NESTED_DIR} is discovered and extracted too, level by level,
+     * until no more nested jars are found. Duplicate containers and content cycles
+     * are handled safely. Safe to call multiple times.
+     * <p>
+     * 递归一步式入口：与 {@link #loadNestedJars(Class)} 相同，但会持续向下展开——
+     * 嵌套 jar 自身若还含有 {@value #DEFAULT_NESTED_DIR} 下的嵌套 jar，也会逐层
+     * 被发现并提取，直到不存在更多嵌套为止。重复容器与内容环均被安全处理。可重复调用。
+     *
+     * @param ownerClass a class inside the container jar (typically the mod main
+     *                   class)
+     *                   （容器 jar 内的任意类，通常传模组主类）
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJarsRecursive(Class<?> ownerClass) {
+        return loadNestedJarsRecursive(ownerClass, DEFAULT_NESTED_DIR, getDefaultCacheDir());
+    }
+
+    /**
+     * Same as {@link #loadNestedJarsRecursive(Class)} with a custom nested directory
+     * and cache directory.
+     * <p>
+     * 与 {@link #loadNestedJarsRecursive(Class)} 相同，但可自定义嵌套目录与缓存目录。
+     *
+     * @param ownerClass a class inside the container jar / 容器 jar 内的任意类
+     * @param nestedDir  entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir   directory to extract into / 提取目标缓存目录
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJarsRecursive(Class<?> ownerClass, String nestedDir, File cacheDir) {
+        return loadNestedJarsRecursive(Collections.singleton(ownerClass), nestedDir, cacheDir);
+    }
+
+    /**
+     * Batch recursive one-shot entry point: resolves the container of every given
+     * owner class and loads their nested jars transitively. Safe to call multiple
+     * times.
+     * <p>
+     * 批量递归一步式入口：解析每个给定类所在的容器，并传递式地加载其嵌套 jar。
+     * 可重复调用。
+     *
+     * @param ownerClasses classes inside the container jars (typically mod main
+     *                     classes)
+     *                     （容器 jar 内的类，通常传模组主类）
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJarsRecursive(Collection<Class<?>> ownerClasses) {
+        return loadNestedJarsRecursive(ownerClasses, DEFAULT_NESTED_DIR, getDefaultCacheDir());
+    }
+
+    /**
+     * Same as {@link #loadNestedJarsRecursive(Collection)} with a custom nested
+     * directory and cache directory.
+     * <p>
+     * 与 {@link #loadNestedJarsRecursive(Collection)} 相同，但可自定义嵌套目录与缓存目录。
+     *
+     * @param ownerClasses classes inside the container jars / 容器 jar 内的类
+     * @param nestedDir    entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir     directory to extract into / 提取目标缓存目录
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJarsRecursive(Collection<Class<?>> ownerClasses, String nestedDir, File cacheDir) {
+        return loadNestedJarsRecursiveFromJars(resolveContainers(ownerClasses), nestedDir, cacheDir);
+    }
+
+    /**
+     * Batch recursive one-shot entry point that takes container files directly; see
+     * {@link #extractAllNestedJarsRecursive(Collection, String, File)} for the
+     * traversal semantics. Injection order follows discovery order.
+     * <p>
+     * 直接接收容器文件列表的批量递归一步式入口；遍历语义见
+     * {@link #extractAllNestedJarsRecursive(Collection, String, File)}。
+     * 注入顺序与发现顺序一致。
+     *
+     * @param containerJars the container files / 容器文件列表
+     * @param nestedDir     entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir      directory to extract into / 提取目标缓存目录
+     * @return the injected jar files, empty if none found / 已注入的 jar 文件列表，无则为空
+     */
+    public static List<File> loadNestedJarsRecursiveFromJars(Collection<File> containerJars, String nestedDir, File cacheDir) {
+        List<File> injected = new ArrayList<File>();
+        for (File jar : extractAllNestedJarsRecursive(containerJars, nestedDir, cacheDir)) {
             if (injectIntoClasspath(jar)) {
                 injected.add(jar);
             }
@@ -418,6 +494,74 @@ public final class JarInJar {
     }
 
     /**
+     * Recursive version of {@link #extractAllNestedJars(Collection, String, File)}:
+     * keeps descending into every extracted jar that itself contains nested jars,
+     * level by level, until no more nested jars are found. All extracted files are
+     * returned in discovery order, deduplicated by canonical path; a jar is never
+     * scanned twice, which also breaks content cycles (the same content always
+     * resolves to the same hash-named cache file).
+     * <p>
+     * {@link #extractAllNestedJars(Collection, String, File)} 的递归版本：持续下探到
+     * 每个自身还含有嵌套 jar 的已提取 jar，逐层处理，直到不存在更多嵌套为止。
+     * 返回全部提取文件，按发现顺序、以规范路径去重；每个 jar 只会被扫描一次，
+     * 内容环也因此被截断（相同内容必然解析为同名哈希缓存文件）。
+     *
+     * @param containerJars the container files (jars or directories) / 容器文件（jar
+     *                      或目录）
+     * @param nestedDir     entry prefix of nested jars / 嵌套 jar 的条目前缀
+     * @param cacheDir      target cache directory / 目标缓存目录
+     * @return all extracted files, never {@code null} / 全部提取文件，恒非 {@code null}
+     */
+    public static List<File> extractAllNestedJarsRecursive(Collection<File> containerJars, String nestedDir, File cacheDir) {
+        // Canonical paths of containers already scanned for nested jars.
+        // 已作为容器扫描过嵌套 jar 的规范路径集合。
+        Set<String> scanned = new HashSet<String>();
+        // All extracted files, deduplicated by canonical path, discovery-ordered.
+        // 全部提取结果：按规范路径去重，保持发现顺序。
+        Map<String, File> extracted = new LinkedHashMap<String, File>();
+        // Current level of containers to process. / 当前层待处理的容器。
+        List<File> frontier = dedupContainers(containerJars);
+        while (!frontier.isEmpty()) {
+            // This level is about to be scanned by extractAllNestedJars below; mark
+            // it now so the same jar (e.g. a cache hit) is never re-scanned in a
+            // later level.
+            // 本层即将被下面的 extractAllNestedJars 扫描，先打上标记，
+            // 保证同一 jar（如缓存命中）在后续层不会被重复扫描。
+            for (File container : frontier) {
+                scanned.add(canonicalKey(container));
+            }
+            for (File file : extractAllNestedJars(frontier, nestedDir, cacheDir)) {
+                extracted.put(canonicalKey(file), file);
+            }
+            // Next level: every extracted jar that has not been scanned yet.
+            // 下一层：所有已提取但尚未被扫描过的 jar。
+            List<File> next = new ArrayList<File>();
+            for (File file : extracted.values()) {
+                if (!scanned.contains(canonicalKey(file))) {
+                    next.add(file);
+                }
+            }
+            frontier = next;
+        }
+        return new ArrayList<File>(extracted.values());
+    }
+
+    /**
+     * Single-container convenience of
+     * {@link #extractAllNestedJarsRecursive(Collection, String, File)}.
+     * <p>
+     * {@link #extractAllNestedJarsRecursive(Collection, String, File)} 的单容器便捷版。
+     *
+     * @param containerJar the outer jar file / 外层容器 jar 文件
+     * @param nestedDir    entry prefix / 条目前缀
+     * @param cacheDir     target cache directory / 目标缓存目录
+     * @return all extracted files / 全部提取文件
+     */
+    public static List<File> extractAllNestedJarsRecursive(File containerJar, String nestedDir, File cacheDir) {
+        return extractAllNestedJarsRecursive(Collections.singletonList(containerJar), nestedDir, cacheDir);
+    }
+
+    /**
      * Extracts a single nested jar entry into {@code cacheDir}, using content-hash
      * deduplication: the output is named {@code <basename>-<sha256[0..8]>.jar}, and
      * if a
@@ -607,6 +751,65 @@ public final class JarInJar {
     public static File getDefaultCacheDir() {
         File base = (Launch.minecraftHome != null) ? Launch.minecraftHome : new File(System.getProperty("user.dir"));
         return new File(base, "jarutils" + File.separator + "jarinjar");
+    }
+
+    /**
+     * Canonical path of a file, falling back to the absolute path when the
+     * canonical path is unavailable (e.g. on exotic file systems).
+     * <p>
+     * 文件的规范路径；规范路径不可用时（如特殊文件系统）回退到绝对路径。
+     */
+    private static String canonicalKey(File file) {
+        try {
+            return file.getCanonicalPath();
+        } catch (IOException e) {
+            return file.getAbsolutePath();
+        }
+    }
+
+    /**
+     * Filters out {@code null} entries and duplicate containers (by canonical
+     * path), preserving the order of first occurrences.
+     * <p>
+     * 过滤掉 {@code null} 与重复容器（按规范路径判断），保留首次出现的顺序。
+     */
+    private static List<File> dedupContainers(Collection<File> containers) {
+        List<File> deduped = new ArrayList<File>();
+        if (containers == null) {
+            return deduped;
+        }
+        Set<String> seen = new HashSet<String>();
+        for (File container : containers) {
+            if (container == null) {
+                continue;
+            }
+            if (seen.add(canonicalKey(container))) {
+                deduped.add(container);
+            }
+        }
+        return deduped;
+    }
+
+    /**
+     * Resolves the container of every owner class, skipping unresolvable ones and
+     * deduplicating containers that map to the same file.
+     * <p>
+     * 解析每个 owner 类所在的容器：跳过无法解析的类，并对映射到同一文件的容器去重。
+     */
+    private static List<File> resolveContainers(Collection<Class<?>> ownerClasses) {
+        List<File> containers = new ArrayList<File>();
+        Set<String> seen = new HashSet<String>();
+        for (Class<?> owner : ownerClasses) {
+            File container = JarLocator.getContainingFile(owner);
+            if (container == null) {
+                LOGGER.warn("Cannot locate container of {}; skip jar-in-jar loading", owner.getName());
+                continue;
+            }
+            if (seen.add(canonicalKey(container))) {
+                containers.add(container);
+            }
+        }
+        return containers;
     }
 
     private static boolean isJarLike(String name) {
