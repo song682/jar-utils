@@ -46,6 +46,9 @@ import java.util.jar.JarFile;
  */
 public final class JarContents {
 
+    private static final String CLASS_SUFFIX = ".class";
+    private static final String JAVA_SUFFIX = ".java";
+
     private static final Logger LOGGER = LogManager.getLogger("JarUtils|JarContents");
 
     private JarContents() {
@@ -191,6 +194,72 @@ public final class JarContents {
             }
         }
         return new File(container, entryName).isFile();
+    }
+
+    // === === === Class entry search / 类条目搜索 === === ===
+
+    /**
+     * Finds entries holding the given class: an exact lookup of
+     * {@code pkg/Name.class} (falling back to {@code pkg/Name.java}) first, then —
+     * when the input carries no package part — a scan for every entry ending with
+     * {@code Name.class} or {@code Name.java}. This mirrors the classic
+     * jarfinder approach of locating a class inside jar files.
+     * <p>
+     * A trailing {@code .class}/{@code .java} suffix on the input is ignored, so
+     * both {@code "com.example.Foo"} and {@code "com.example.Foo.class"} work.
+     * The exact match wins over the scan: a fully qualified name resolves to at
+     * most one entry.
+     * <p>
+     * 查找承载指定类的条目：先精确查找 {@code pkg/Name.class}
+     * （未命中则回退 {@code pkg/Name.java}）；当输入不含包名时，再扫描所有以
+     * {@code Name.class} 或 {@code Name.java} 结尾的条目。
+     * 该行为沿用经典的 jarfinder 在 jar 中定位类的思路。
+     * <p>
+     * 输入末尾的 {@code .class}/{@code .java} 后缀会被忽略，因此
+     * {@code "com.example.Foo"} 与 {@code "com.example.Foo.class"} 均可传入。
+     * 精确匹配优先于扫描：完全限定名最多解析出一个条目。
+     *
+     * @param container a jar file or a classes directory / jar 文件或 class 输出目录
+     * @param className class name, with or without the package part /
+     *                  类名，可含或不含包名
+     * @return matching entry names (bytecode or source), never {@code null}
+     *         （匹配的条目名，字节码或源码，恒非 {@code null}）
+     */
+    public static List<String> findClassEntries(File container, String className) {
+        List<String> found = new ArrayList<String>();
+        if (container == null || className == null) {
+            return found;
+        }
+        // Normalize: strip a trailing .class/.java suffix first.
+        // 规范化：先去掉末尾的 .class/.java 后缀。
+        String name = className.trim();
+        if (name.endsWith(CLASS_SUFFIX) || name.endsWith(JAVA_SUFFIX)) {
+            name = name.substring(0, name.length() - CLASS_SUFFIX.length());
+        }
+        if (name.isEmpty()) {
+            return found;
+        }
+
+        // Tier 1: exact lookup, bytecode first, source as a fallback.
+        // 第一级：精确查找，先字节码后源码。
+        String classEntry = name.replace('.', '/') + CLASS_SUFFIX;
+        if (hasEntry(container, classEntry)) {
+            found.add(classEntry);
+            return found;
+        }
+        String sourceEntry = name.replace('.', '/') + JAVA_SUFFIX;
+        if (hasEntry(container, sourceEntry)) {
+            found.add(sourceEntry);
+            return found;
+        }
+
+        // Tier 2: bare class name without any package part -> scan all entries.
+        // 第二级：无包名的裸类名 —— 扫描全部条目。
+        if (name.indexOf('.') < 0) {
+            found.addAll(listEntryNames(container, "", classEntry));
+            found.addAll(listEntryNames(container, "", sourceEntry));
+        }
+        return found;
     }
 
     // === === === Entry content / 条目内容 === === ===
