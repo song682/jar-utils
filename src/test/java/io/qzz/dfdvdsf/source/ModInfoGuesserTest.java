@@ -219,6 +219,53 @@ public class ModInfoGuesserTest {
         assertFalse(guess.hasAny());
     }
 
+    // === === === jar file name as a low-trust fallback / jar 文件名低可信度兜底 === === ===
+
+    @Test
+    public void testJarFileNameFillsVersionAndName() throws IOException {
+        File root = tempFolder.newFolder("no-meta");
+        write(root, "Foo.java", "public class Foo {}\n");
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guess(root, "MyMod-1.2.3.jar");
+        assertNull(guess.modid());
+        assertEquals("MyMod", guess.name());
+        assertEquals("1.2.3", guess.version());
+        assertTrue(guess.source(), guess.source().contains("MyMod-1.2.3.jar"));
+    }
+
+    @Test
+    public void testJarFileNameDoesNotOverrideMetadata() throws IOException {
+        File root = tempFolder.newFolder("keep-meta");
+        write(root, "MyMod.java",
+                "@Mod(modid = \"annotationmod\", name = \"Annotation Mod\", version = \"2.0\")\n"
+                        + "public class MyMod {}\n");
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guess(root, "OtherMod-9.9.9.jar");
+        assertEquals("annotationmod", guess.modid());
+        assertEquals("Annotation Mod", guess.name());
+        assertEquals("2.0", guess.version());
+        assertFalse(guess.source(), guess.source().contains("OtherMod-9.9.9.jar"));
+    }
+
+    @Test
+    public void testJarFileNameWithoutVersionLeavesNameOnly() throws IOException {
+        File root = tempFolder.newFolder("no-version");
+        write(root, "Foo.java", "public class Foo {}\n");
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guess(root, "MyMod.jar");
+        assertEquals("MyMod", guess.name());
+        assertNull(guess.version());
+    }
+
+    @Test
+    public void testJarFileNameIgnoredWhenUnused() throws IOException {
+        File root = tempFolder.newFolder("unused");
+        write(root, "Foo.java", "public class Foo {}\n");
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guess(root, null);
+        assertFalse(guess.hasAny());
+    }
+
     // === === === real ForgeGradle recompSrc tree / 真实 ForgeGradle recompSrc 树 === === ===
 
     @Test
@@ -233,6 +280,19 @@ public class ModInfoGuesserTest {
         assertEquals("Minecraft Coder Pack", guess.name());
         assertEquals("9.05", guess.version());
         assertTrue(guess.source(), guess.source().contains("mcpmod.info"));
+    }
+
+    @Test
+    public void testRealRecompSrcTreeWithJarNameKeepsToolchainMetadata() {
+        File recompSrc = new File("build/tmp/recompSrc");
+        assumeTrue("recompSrc tree missing; skipping", recompSrc.isDirectory());
+
+        // mcpmod.info must win over the jar file name. / mcpmod.info 优先于 jar 文件名。
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guess(recompSrc, "Forge-1.7.10-10.13.4.1614.jar");
+        assertEquals("mcp", guess.modid());
+        assertEquals("Minecraft Coder Pack", guess.name());
+        assertEquals("9.05", guess.version());
+        assertFalse(guess.source(), guess.source().contains("Forge-1.7.10-10.13.4.1614.jar"));
     }
 
     // === === === helpers / 辅助 === === ===

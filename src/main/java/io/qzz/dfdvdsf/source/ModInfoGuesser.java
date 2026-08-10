@@ -1,5 +1,7 @@
 package io.qzz.dfdvdsf.source;
 
+import io.qzz.dfdvdsf.jarfile.JarVersionGuesser;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,7 +19,10 @@ import java.util.regex.Pattern;
  *   <li>{@code @Mod} annotations on Java sources — direct string values as well
  *       as references to constants such as {@code Tags.MODID};</li>
  *   <li>{@code mcmod.info} / {@code mcpmod.info} metadata files;</li>
- *   <li>{@code mixins.*.json} file names, which by convention embed the modid.</li>
+ *   <li>{@code mixins.*.json} file names, which by convention embed the modid;</li>
+ *   <li>the jar file name itself, when provided via {@link #guess(File, String)}
+ *       — a low-trust fallback that fills a missing version/display name (see
+ *       {@link JarVersionGuesser}).</li>
  * </ol>
  * Fields missing from a higher-priority source are filled in by the next
  * lower-priority one, so a mixed result (e.g. modid from {@code @Mod},
@@ -35,7 +40,9 @@ import java.util.regex.Pattern;
  *   <li>Java 源码上的 {@code @Mod} 注解——支持直接字符串值，也支持对常量的引用，
  *       如 {@code Tags.MODID}；</li>
  *   <li>{@code mcmod.info} / {@code mcpmod.info} 元数据文件；</li>
- *   <li>{@code mixins.*.json} 文件名——按惯例其中嵌有 modid。</li>
+ *   <li>{@code mixins.*.json} 文件名——按惯例其中嵌有 modid；</li>
+ *   <li>jar 文件名本身——通过 {@link #guess(File, String)} 传入，是低可信度
+ *       兜底，仅补齐缺失的版本/显示名（参见 {@link JarVersionGuesser}）。</li>
  * </ol>
  * 高优先级来源缺失的字段由下一优先级补齐，因此可能出现混合结果
  * （例如 modid 来自 {@code @Mod}、version 来自 {@code mcmod.info}）。
@@ -145,6 +152,26 @@ public final class ModInfoGuesser {
      * @return the guess; never {@code null} / 猜测结果，恒非 {@code null}
      */
     public static Guess guess(File sourceRoot) {
+        return guess(sourceRoot, null);
+    }
+
+    /**
+     * Variant that additionally knows the jar file name the tree was decompiled
+     * from (e.g. {@code "MyMod-1.2.3.jar"}). The file name is the least trusted
+     * source: it only fills a still-missing version and/or display name via
+     * {@link JarVersionGuesser}, and never overrides metadata found inside the
+     * tree.
+     * <p>
+     * 附加了源码树来源 jar 文件名（如 {@code "MyMod-1.2.3.jar"}）的重载。
+     * 文件名是最低可信度来源：仅通过 {@link JarVersionGuesser} 补齐仍未找到的
+     * 版本和/或显示名，绝不覆盖树内找到的元数据。
+     *
+     * @param sourceRoot  a directory with decompiled sources / 存放反编译源码的目录
+     * @param jarFileName the jar file name the tree was decompiled from, or
+     *                    {@code null} / 源码树来源的 jar 文件名，可为 {@code null}
+     * @return the guess; never {@code null} / 猜测结果，恒非 {@code null}
+     */
+    public static Guess guess(File sourceRoot, String jarFileName) {
         if (sourceRoot == null || !sourceRoot.isDirectory()) {
             return new Guess(null, null, null, "not a directory");
         }
@@ -245,6 +272,26 @@ public final class ModInfoGuesser {
                     origins.add(json.getName());
                     break;
                 }
+            }
+        }
+
+        // Phase 4: the jar file name is the least trusted clue — it only fills
+        // a still-missing version/name and never overrides in-tree metadata.
+        // 阶段四：jar 文件名是最低可信度线索——只补齐仍未找到的版本/名字，
+        // 绝不覆盖树内元数据。
+        if (jarFileName != null) {
+            JarVersionGuesser.Guess fileGuess = JarVersionGuesser.guess(jarFileName);
+            boolean filled = false;
+            if (version == null && fileGuess.version() != null) {
+                version = fileGuess.version();
+                filled = true;
+            }
+            if (name == null && fileGuess.name() != null) {
+                name = fileGuess.name();
+                filled = true;
+            }
+            if (filled) {
+                origins.add(jarFileName);
             }
         }
 
