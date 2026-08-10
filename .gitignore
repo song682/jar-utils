@@ -19,6 +19,9 @@ idea
 build
 .gradle
 
+# logs
+logs
+
 # minecraft
 minecraft
 eclipse
