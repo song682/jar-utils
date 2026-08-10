@@ -1,5 +1,7 @@
 package io.qzz.dfdvdsf.source;
 
+import io.qzz.dfdvdsf.jarfile.JarContents;
+import io.qzz.dfdvdsf.jarfile.JarNames;
 import io.qzz.dfdvdsf.jarfile.JarVersionGuesser;
 
 import java.io.File;
@@ -235,43 +237,29 @@ public final class ModInfoGuesser {
             }
         }
 
+        // Hand the remaining phases over to the shared field-filling bag.
+        // 剩余阶段交给共用的字段补齐累加器处理。
+        FieldBag bag = new FieldBag();
+        bag.modid = modid;
+        bag.name = name;
+        bag.version = version;
+        bag.origins.addAll(origins);
+
         // Phase 2: mcmod.info / mcpmod.info metadata files fill the gaps.
         // 阶段二：mcmod.info / mcpmod.info 元数据文件补齐缺失字段。
         for (File meta : findFiles(sourceRoot, MCMOD_INFO, MCPMOD_INFO)) {
-            String text = readText(meta);
-            if (text == null) {
-                continue;
-            }
-            Matcher m = METADATA_FIELD.matcher(text);
-            while (m.find()) {
-                String value = m.group(2);
-                if (isTemplate(value)) {
-                    continue;
-                }
-                if ("modid".equals(m.group(1)) && modid == null) {
-                    modid = value;
-                } else if ("name".equals(m.group(1)) && name == null) {
-                    name = value;
-                } else if ("version".equals(m.group(1)) && version == null) {
-                    version = value;
-                }
-            }
-            origins.add(meta.getName());
-            if (modid != null && name != null && version != null) {
+            bag.fillFromMetadataText(readText(meta), meta.getName());
+            if (bag.complete()) {
                 break;
             }
         }
 
         // Phase 3: mixins.*.json file names conventionally embed the modid.
         // 阶段三：mixins.*.json 文件名按惯例内嵌 modid。
-        if (modid == null) {
-            for (File json : findFiles(sourceRoot, JSON_SUFFIX)) {
-                Matcher m = MIXINS_FILE.matcher(json.getName());
-                if (m.matches() && !json.getName().contains(REFMAP_MARKER)) {
-                    modid = m.group(1);
-                    origins.add(json.getName());
-                    break;
-                }
+        for (File json : findFiles(sourceRoot, JSON_SUFFIX)) {
+            bag.fillModidFromMixinsName(json.getName());
+            if (bag.modid != null) {
+                break;
             }
         }
 
@@ -279,7 +267,170 @@ public final class ModInfoGuesser {
         // a still-missing version/name and never overrides in-tree metadata.
         // 阶段四：jar 文件名是最低可信度线索——只补齐仍未找到的版本/名字，
         // 绝不覆盖树内元数据。
-        if (jarFileName != null) {
+        bag.fillFromJarFileName(jarFileName);
+
+        return bag.toGuess();
+    }
+
+    /**
+     * Guesses the mod metadata directly from a jar file, without decompiling:
+     * reads the {@code mcmod.info} / {@code mcpmod.info} entries, the
+     * {@code mixins.*.json} entry names, and finally falls back to the jar file
+     * name itself (see {@link JarVersionGuesser}). {@code @Mod} annotations in
+     * bytecode are not inspected — decompile the jar and use
+     * {@link #guess(File, String)} for full coverage.
+     * <p>
+     * 直接从 jar 文件猜测模组元数据，无需反编译：读取 {@code mcmod.info} /
+     * {@code mcpmod.info} 条目、{@code mixins.*.json} 条目名，最后回退到 jar
+     * 文件名本身（参见 {@link JarVersionGuesser}）。不检查字节码中的
+     * {@code @Mod} 注解——需要完整覆盖时请反编译 jar 后使用
+     * {@link #guess(File, String)}。
+     *
+     * @param jarFile the jar file to inspect / 待检查的 jar 文件
+     * @return the guess; never {@code null} / 猜测结果，恒非 {@code null}
+     */
+    public static Guess guessJar(File jarFile) {
+        return guessJar(jarFile, jarFile != null ? jarFile.getName() : null);
+    }
+
+    /**
+     * Variant of {@link #guessJar(File)} with a logical jar name, for jars that
+     * live under a different name on disk than their identity — e.g. nested
+     * jars extracted to hash-named cache files. The logical name (a file name
+     * or a full entry name; only its basename is used) feeds the file-name
+     * fallback instead of the physical file name.
+     * <p>
+     * {@link #guessJar(File)} 的带逻辑 jar 名变体，用于磁盘上的名字与身份不符
+     * 的 jar——例如提取为哈希名缓存文件的嵌套 jar。逻辑名（文件名或完整条目名；
+     * 仅取其 basename）替代物理文件名参与文件名兜底。
+     *
+     * @param jarFile the jar file to inspect / 待检查的 jar 文件
+     * @param jarName logical jar name (file name or entry name), or
+     *                {@code null} / 逻辑 jar 名（文件名或条目名），可为 {@code null}
+     * @return the guess; never {@code null} / 猜测结果，恒非 {@code null}
+     */
+    public static Guess guessJar(File jarFile, String jarName) {
+        if (jarFile == null || !jarFile.isFile() || !JarNames.isJarLike(jarFile.getName())) {
+            return new Guess(null, null, null, "not a jar file");
+        }
+        FieldBag bag = new FieldBag();
+
+        // Phase 1: mcmod.info / mcpmod.info entries, the most trustworthy source.
+        // 阶段一：mcmod.info / mcpmod.info 条目，最可信的来源。
+        for (String entry : JarContents.listEntryNames(jarFile, "", ".info")) {
+            if (!MCMOD_INFO.equals(entry) && !MCPMOD_INFO.equals(entry)) {
+                continue;
+            }
+            bag.fillFromMetadataText(JarContents.readEntryText(jarFile, entry), entry);
+            if (bag.complete()) {
+                break;
+            }
+        }
+
+        // Phase 2: mixins.*.json entry names conventionally embed the modid.
+        // 阶段二：mixins.*.json 条目名按惯例内嵌 modid。
+        if (bag.modid == null) {
+            for (String entry : JarContents.listEntryNames(jarFile, "", JSON_SUFFIX)) {
+                bag.fillModidFromMixinsName(entry);
+                if (bag.modid != null) {
+                    break;
+                }
+            }
+        }
+
+        // Phase 3: jar file name fallback for version/name, based on the logical
+        // name's basename (a hash-named cache file must not leak into the guess).
+        // 阶段三：jar 文件名兜底版本/名字，基于逻辑名的 basename
+        // （哈希命名的缓存文件名不得泄漏进猜测结果）。
+        bag.fillFromJarFileName(basename(jarName));
+
+        return bag.toGuess();
+    }
+
+    private static String basename(String name) {
+        if (name == null) {
+            return null;
+        }
+        int slash = name.lastIndexOf('/');
+        return slash >= 0 ? name.substring(slash + 1) : name;
+    }
+
+    /**
+     * Mutable accumulator shared by the directory and jar pipelines: fills
+     * fields from metadata text, mixins file names and jar file names, and
+     * records where each value came from.
+     * <p>
+     * 目录流水线与 jar 流水线共用的可变累加器：从元数据文本、mixins 文件名和
+     * jar 文件名补齐字段，并记录每个值的来源。
+     */
+    private static final class FieldBag {
+
+        String modid;
+        String name;
+        String version;
+        final List<String> origins = new ArrayList<String>();
+
+        boolean complete() {
+            return modid != null && name != null && version != null;
+        }
+
+        /**
+         * Fills missing fields from an mcmod.info/mcpmod.info text; template
+         * values such as {@code ${modid}} are skipped. / 从 mcmod.info/mcpmod.info
+         * 文本补齐缺失字段；跳过 {@code ${modid}} 这类模板值。
+         */
+        void fillFromMetadataText(String text, String origin) {
+            if (text == null) {
+                return;
+            }
+            Matcher m = METADATA_FIELD.matcher(text);
+            boolean filled = false;
+            while (m.find()) {
+                String value = m.group(2);
+                if (isTemplate(value)) {
+                    continue;
+                }
+                if ("modid".equals(m.group(1)) && modid == null) {
+                    modid = value;
+                    filled = true;
+                } else if ("name".equals(m.group(1)) && name == null) {
+                    name = value;
+                    filled = true;
+                } else if ("version".equals(m.group(1)) && version == null) {
+                    version = value;
+                    filled = true;
+                }
+            }
+            if (filled) {
+                origins.add(origin);
+            }
+        }
+
+        /**
+         * Fills a missing modid from a {@code mixins.*.json} file name, unless it
+         * is a refmap file. / 从 {@code mixins.*.json} 文件名补齐缺失的 modid；
+         * refmap 文件除外。
+         */
+        void fillModidFromMixinsName(String fileName) {
+            if (modid != null) {
+                return;
+            }
+            Matcher m = MIXINS_FILE.matcher(fileName);
+            if (m.matches() && !fileName.contains(REFMAP_MARKER)) {
+                modid = m.group(1);
+                origins.add(fileName);
+            }
+        }
+
+        /**
+         * Fills missing version/name from the jar file name via
+         * {@link JarVersionGuesser}. / 通过 {@link JarVersionGuesser} 从 jar
+         * 文件名补齐缺失的版本/名字。
+         */
+        void fillFromJarFileName(String jarFileName) {
+            if (jarFileName == null) {
+                return;
+            }
             JarVersionGuesser.Guess fileGuess = JarVersionGuesser.guess(jarFileName);
             boolean filled = false;
             if (version == null && fileGuess.version() != null) {
@@ -295,7 +446,9 @@ public final class ModInfoGuesser {
             }
         }
 
-        return new Guess(modid, name, version, joinOrigins(origins));
+        Guess toGuess() {
+            return new Guess(modid, name, version, joinOrigins(origins));
+        }
     }
 
     /**

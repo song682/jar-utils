@@ -5,9 +5,14 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -295,7 +300,71 @@ public class ModInfoGuesserTest {
         assertFalse(guess.source(), guess.source().contains("Forge-1.7.10-10.13.4.1614.jar"));
     }
 
+    // === === === guessJar: direct jar identification / guessJar：直接识别 jar === === ===
+
+    @Test
+    public void testGuessJarFromMcmodInfo() throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<String, byte[]>();
+        entries.put("mcmod.info", text("[{\"modid\": \"mcp\", \"name\": \"Minecraft Coder Pack\", \"version\": \"9.05\"}]"));
+        File jar = writeJar(tempFolder.newFolder("jar-meta"), "MyMod-9.9.9.jar", entries);
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guessJar(jar);
+        assertEquals("mcp", guess.modid());
+        assertEquals("Minecraft Coder Pack", guess.name());
+        assertEquals("9.05", guess.version());
+        assertTrue(guess.source(), guess.source().contains("mcmod.info"));
+        assertFalse(guess.source(), guess.source().contains("MyMod-9.9.9.jar"));
+    }
+
+    @Test
+    public void testGuessJarMixinsFallback() throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<String, byte[]>();
+        entries.put("mixins.mymod.json", text("{}"));
+        File jar = writeJar(tempFolder.newFolder("jar-mixins"), "MyMod.jar", entries);
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guessJar(jar);
+        assertEquals("mymod", guess.modid());
+        assertNull(guess.version());
+    }
+
+    @Test
+    public void testGuessJarFileNameFallback() throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<String, byte[]>();
+        File jar = writeJar(tempFolder.newFolder("jar-filename"), "mymod-1.2.3.jar", entries);
+
+        ModInfoGuesser.Guess guess = ModInfoGuesser.guessJar(jar);
+        assertNull(guess.modid());
+        assertEquals("mymod", guess.name());
+        assertEquals("1.2.3", guess.version());
+        assertTrue(guess.source(), guess.source().contains("mymod-1.2.3.jar"));
+    }
+
+    @Test
+    public void testGuessJarNonJarInput() throws IOException {
+        assertFalse(ModInfoGuesser.guessJar(null).hasAny());
+        assertFalse(ModInfoGuesser.guessJar(tempFolder.newFile("not-a-jar.txt")).hasAny());
+    }
+
     // === === === helpers / 辅助 === === ===
+
+    private static byte[] text(String content) {
+        return content.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static File writeJar(File root, String name, Map<String, byte[]> entries) throws IOException {
+        File jar = new File(root, name);
+        ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(jar));
+        try {
+            for (Map.Entry<String, byte[]> e : entries.entrySet()) {
+                zos.putNextEntry(new ZipEntry(e.getKey()));
+                zos.write(e.getValue());
+                zos.closeEntry();
+            }
+        } finally {
+            zos.close();
+        }
+        return jar;
+    }
 
     private static void write(File root, String relPath, String content) throws IOException {
         File file = new File(root, relPath);

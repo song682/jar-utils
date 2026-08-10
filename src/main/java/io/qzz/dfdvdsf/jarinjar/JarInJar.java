@@ -638,8 +638,14 @@ public final class JarInJar {
             }
 
             // Pass 2: write to a temp file, then atomically rename into place.
+            // createTempFile requires a prefix of at least 3 characters; pad
+            // short stems (e.g. "a.jar") accordingly. The temp name does not
+            // affect the final dedup file name.
             // 第二遍：先写临时文件，再原子重命名到最终位置。
-            File tmp = File.createTempFile(stem + "-", ".tmp", cacheDir);
+            // createTempFile 要求前缀至少 3 个字符；短 stem（如 "a.jar"）需要
+            // 补足。临时文件名不影响最终去重文件名。
+            String tmpPrefix = stem.length() < 3 ? "tmp-" + stem + "-" : stem + "-";
+            File tmp = File.createTempFile(tmpPrefix, ".tmp", cacheDir);
             in = jarFile.getInputStream(entry);
             OutputStream outStream = new FileOutputStream(tmp);
             try {
