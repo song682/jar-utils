@@ -64,7 +64,7 @@ public class JarUtilTest {
 
         JarUtil.scan(modsDir, Collections.<File>emptyList(), true);
 
-        Set<JarUtil.UrlBuffered> all = JarUtil.getSet();
+        Set<UrlBuffered> all = JarUtil.getSet();
         assertTrue(hasUrl(all, "assets/mod/lang/en_US.lang"));
         assertTrue(hasUrl(all, "META-INF/MANIFEST.MF"));
         assertFalse("class entries must be skipped", hasUrl(all, "com/example/Foo.class"));
@@ -87,7 +87,7 @@ public class JarUtilTest {
 
         JarUtil.scan(modsDir, Collections.<File>emptyList(), true);
 
-        Set<JarUtil.UrlBuffered> data = JarUtil.getDataSet();
+        Set<UrlBuffered> data = JarUtil.getDataSet();
         assertTrue(hasUrl(data, "data/recipes.json"));
         assertTrue(hasUrl(data, "data/nested/blockstates.json"));
         assertFalse("non-data entries must not land in the data set",
@@ -123,8 +123,8 @@ public class JarUtilTest {
 
         JarUtil.scan(null, Arrays.asList(dataDir), true);
 
-        Set<JarUtil.UrlBuffered> all = JarUtil.getSet();
-        Set<JarUtil.UrlBuffered> data = JarUtil.getDataSet();
+        Set<UrlBuffered> all = JarUtil.getSet();
+        Set<UrlBuffered> data = JarUtil.getDataSet();
         assertTrue(hasPath(all, new File(dataDir, "recipes.json").getAbsolutePath()));
         assertTrue(hasPath(all, new File(nested, "blockstates.json").getAbsolutePath()));
         assertTrue("local files must land in the data set too",
@@ -166,7 +166,7 @@ public class JarUtilTest {
 
         JarUtil.scan(modsDir, Collections.<File>emptyList(), true);
 
-        JarUtil.UrlBuffered url = findUrl(JarUtil.getSet(), "data/recipes.json");
+        UrlBuffered url = findUrl(JarUtil.getSet(), "data/recipes.json");
         assertNotNull(url);
         assertTrue(url.isJar());
         assertEquals(jar, url.getSource());
@@ -186,7 +186,7 @@ public class JarUtilTest {
 
         JarUtil.scan(null, Arrays.asList(dataDir), true);
 
-        JarUtil.UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
+        UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
         assertNotNull(url);
         assertFalse(url.isJar());
         assertEquals("{\"tip\":\"你好，世界\"}", JarUtil.readFileFromUrl(url));
@@ -208,7 +208,7 @@ public class JarUtilTest {
 
         JarUtil.scan(null, Arrays.asList(dataDir), true);
 
-        JarUtil.UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
+        UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
         assertNotNull(url);
         InputStream in = JarUtil.getInputStreamFromUrl(url);
         assertNotNull(in);
@@ -232,7 +232,7 @@ public class JarUtilTest {
 
         JarUtil.scan(null, Arrays.asList(dataDir), true);
 
-        JarUtil.UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
+        UrlBuffered url = findPath(JarUtil.getSet(), file.getAbsolutePath());
         assertNotNull(url);
         assertTrue(file.delete());
         assertNull(JarUtil.getInputStreamFromUrl(url));
@@ -260,8 +260,8 @@ public class JarUtilTest {
     }
 
     /**
-     * Equal {@link JarUtil.UrlBuffered} entries hash identically, so the index
-     * sets deduplicate by path. / 相等的 {@link JarUtil.UrlBuffered} 哈希一致，
+     * Equal {@link UrlBuffered} entries hash identically, so the index
+     * sets deduplicate by path. / 相等的 {@link UrlBuffered} 哈希一致，
      * 索引集按路径去重。
      */
     @Test
@@ -272,7 +272,7 @@ public class JarUtilTest {
 
         JarUtil.scan(modsDir, Collections.<File>emptyList(), true);
 
-        Set<JarUtil.UrlBuffered> copy = new HashSet<JarUtil.UrlBuffered>(JarUtil.getSet());
+        Set<UrlBuffered> copy = new HashSet<UrlBuffered>(JarUtil.getSet());
         assertEquals(JarUtil.getSet(), copy);
     }
 
@@ -319,12 +319,12 @@ public class JarUtilTest {
 
     // === === === 测试辅助 === === ===
 
-    private static boolean hasUrl(Set<JarUtil.UrlBuffered> set, String url) {
+    private static boolean hasUrl(Set<UrlBuffered> set, String url) {
         return findUrl(set, url) != null;
     }
 
-    private static JarUtil.UrlBuffered findUrl(Set<JarUtil.UrlBuffered> set, String url) {
-        for (JarUtil.UrlBuffered u : set) {
+    private static UrlBuffered findUrl(Set<UrlBuffered> set, String url) {
+        for (UrlBuffered u : set) {
             if (u.isJar() && u.getFileUrl().equals(url)) {
                 return u;
             }
@@ -332,12 +332,12 @@ public class JarUtilTest {
         return null;
     }
 
-    private static boolean hasPath(Set<JarUtil.UrlBuffered> set, String path) {
+    private static boolean hasPath(Set<UrlBuffered> set, String path) {
         return findPath(set, path) != null;
     }
 
-    private static JarUtil.UrlBuffered findPath(Set<JarUtil.UrlBuffered> set, String path) {
-        for (JarUtil.UrlBuffered u : set) {
+    private static UrlBuffered findPath(Set<UrlBuffered> set, String path) {
+        for (UrlBuffered u : set) {
             if (!u.isJar() && u.getFileUrl().equals(path)) {
                 return u;
             }
