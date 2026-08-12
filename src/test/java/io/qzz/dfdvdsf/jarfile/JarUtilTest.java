@@ -276,6 +276,47 @@ public class JarUtilTest {
         assertEquals(JarUtil.getSet(), copy);
     }
 
+    // === === === 开发者代码注册 === === ===
+
+    /**
+     * Directories registered via {@link JarUtil#addScanDirectories(File...)}
+     * are scanned on top of the config-supplied ones.
+     * <p>
+     * 经 {@link JarUtil#addScanDirectories(File...)} 注册的目录会在配置目录
+     * 之上叠加扫描。
+     */
+    @Test
+    public void testRegisteredScanDirectories() throws IOException {
+        File dataDir = tempFolder.newFolder("data");
+        writeFile(new File(dataDir, "recipes.json"), "{}");
+        File extraDir = tempFolder.newFolder("extra");
+        writeFile(new File(extraDir, "notes.txt"), "hi");
+
+        JarUtil.addScanDirectories(extraDir);
+        JarUtil.scan(null, Arrays.asList(dataDir), true);
+
+        assertTrue(hasPath(JarUtil.getSet(), new File(dataDir, "recipes.json").getAbsolutePath()));
+        assertTrue("registered directories must be scanned too",
+                hasPath(JarUtil.getSet(), new File(extraDir, "notes.txt").getAbsolutePath()));
+    }
+
+    /**
+     * Re-registering the same directory does not duplicate entries.
+     * <p>
+     * 重复注册同一目录不会产生重复条目。
+     */
+    @Test
+    public void testRegisteredDirectoriesDeduplicate() throws IOException {
+        File dataDir = tempFolder.newFolder("data");
+        writeFile(new File(dataDir, "recipes.json"), "{}");
+
+        JarUtil.addScanDirectories(dataDir);
+        JarUtil.addScanDirectories(dataDir, dataDir);
+        JarUtil.scan(null, Collections.<File>emptyList(), true);
+
+        assertEquals(1, JarUtil.getSet().size());
+    }
+
     // === === === 测试辅助 === === ===
 
     private static boolean hasUrl(Set<JarUtil.UrlBuffered> set, String url) {

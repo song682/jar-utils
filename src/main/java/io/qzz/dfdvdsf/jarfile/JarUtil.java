@@ -48,6 +48,12 @@ import java.util.jar.JarFile;
  * {@code JarUtilsConfig} 配置）下的全部文件——之后按索引路径将文件以
  * {@link InputStream} 或文本内容的形式提供出去。
  * <p>
+ * 扫描目标有三类来源，按需叠加：mods 目录下的 jar（可通过
+ * {@code JarUtilsConfig#scanModsJars} 关闭）、配置文件指定的本地目录
+ * （{@code JarUtilsConfig#scanDirectories}，默认为空）、以及开发者通过
+ * {@link #addScanDirectories(File...)} 在代码中注册的本地目录——后者让
+ * 模组开发者无需玩家改配置即可内置扫描目标。
+ * <p>
  * 维护两个索引集，均以防御性拷贝的形式对外暴露：
  * <ul>
  * <li>{@link #getSet()} —— 全部已索引文件，含 jar 条目与本地文件。</li>
@@ -82,6 +88,15 @@ public final class JarUtil {
      */
     private static final Set<UrlBuffered> DATA_LIST = new HashSet<UrlBuffered>();
 
+    /**
+     * Local directories registered from code via {@link #addScanDirectories(File...)};
+     * scanned on top of whatever the config file says.
+     * <p>
+     * 通过 {@link #addScanDirectories(File...)} 从代码注册的本地目录；
+     * 在配置文件指定目录之上叠加扫描。
+     */
+    private static final Set<File> REGISTERED_DIRS = new HashSet<File>();
+
     private JarUtil() {
         // Static utility, no instances. / 纯静态工具类，禁止实例化。
     }
@@ -97,16 +112,45 @@ public final class JarUtil {
     static void reset() {
         URL_LIST.clear();
         DATA_LIST.clear();
+        REGISTERED_DIRS.clear();
+    }
+
+    /**
+     * Registers local directories to scan from code, e.g. a mod developer
+     * calling this from its own pre-initialization handler. Registered
+     * directories are scanned on top of whatever the config file says, so
+     * developers can ship scan targets without asking players to edit the
+     * config. Relative paths are resolved against the working directory;
+     * re-registering the same directory is harmless — the set deduplicates.
+     * <p>
+     * 从代码注册需要扫描的本地目录，例如模组开发者在自身的预初始化处理器中
+     * 调用。注册的目录会在配置文件指定目录之上叠加扫描，使开发者无需玩家
+     * 修改配置即可内置扫描目标。相对路径基于工作目录解析；重复注册同一目录
+     * 无副作用——集合按路径去重。
+     *
+     * @param dirs the directories to scan / 需要扫描的目录
+     */
+    public static synchronized void addScanDirectories(File... dirs) {
+        if (dirs == null) {
+            return;
+        }
+        for (File dir : dirs) {
+            if (dir != null) {
+                REGISTERED_DIRS.add(dir.getAbsoluteFile());
+            }
+        }
     }
 
     /**
      * Scans the jars of the mods directory (when {@code modsDir} is non-null)
-     * and every given local directory, filling both index sets. Jar entries
+     * and every local directory — the given ones plus the ones registered via
+     * {@link #addScanDirectories(File...)} — filling both index sets. Jar entries
      * that are directories or end with {@code .class}/{@code .png} are skipped;
      * local files are indexed regardless of suffix. Indexing the same file
      * twice is harmless — the sets deduplicate by path.
      * <p>
-     * 扫描 mods 目录下的 jar（当 {@code modsDir} 非空时）与给定的全部本地目录，
+     * 扫描 mods 目录下的 jar（当 {@code modsDir} 非空时）与全部本地目录——
+     * 给定的目录加上经 {@link #addScanDirectories(File...)} 注册的目录——
      * 填充两个索引集。目录条目及以 {@code .class}/{@code .png} 结尾的 jar 条目
      * 会被跳过；本地文件不论后缀一律索引。同一文件被重复索引无副作用——
      * 索引集按路径去重。
@@ -122,14 +166,20 @@ public final class JarUtil {
      */
     public static synchronized void scan(@Nullable File modsDir, Collection<File> scanDirs, boolean recursive) {
         scanJars(modsDir);
+        Set<File> dirs = new HashSet<File>(REGISTERED_DIRS);
         if (scanDirs != null) {
             for (File dir : scanDirs) {
-                if (dir != null && dir.isDirectory()) {
-                    scanDirectory(dir, recursive, URL_LIST);
-                    scanDirectory(dir, recursive, DATA_LIST);
-                } else if (dir != null) {
-                    LOGGER.warn("Scan directory does not exist or is not a directory: {}", dir);
+                if (dir != null) {
+                    dirs.add(dir.getAbsoluteFile());
                 }
+            }
+        }
+        for (File dir : dirs) {
+            if (dir.isDirectory()) {
+                scanDirectory(dir, recursive, URL_LIST);
+                scanDirectory(dir, recursive, DATA_LIST);
+            } else {
+                LOGGER.warn("Scan directory does not exist or is not a directory: {}", dir);
             }
         }
         LOGGER.info("Indexed {} files in total, {} under data", URL_LIST.size(), DATA_LIST.size());

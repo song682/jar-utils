@@ -11,11 +11,15 @@ import java.util.List;
  * original {@code JarUtil}: "a config that can mark which dir will scan, and
  * scan all." It controls whether the jars of the mods directory are indexed
  * at all, which local directories are scanned additionally, and whether the
- * local scan descends into subdirectories.
+ * local scan descends into subdirectories. By default no local directory is
+ * scanned; developers may register scan targets from code instead via
+ * {@code JarUtil#addScanDirectories(File...)}.
  * <p>
  * 本模组的 Forge 配置文件，解答了原始 {@code JarUtil} 中的经典疑问：
  * “一个可以标记扫描哪些目录的配置，并扫描全部”。它控制是否索引 mods 目录下
- * 的 jar、额外扫描哪些本地目录，以及本地扫描是否递归子目录。
+ * 的 jar、额外扫描哪些本地目录，以及本地扫描是否递归子目录。默认不扫描任何
+ * 本地目录；开发者可改由代码注册扫描目标，见
+ * {@code JarUtil#addScanDirectories(File...)}。
  */
 public class JarUtilsConfig {
 
@@ -30,9 +34,15 @@ public class JarUtilsConfig {
 
     /**
      * Local directories to scan; relative paths are resolved against the
-     * working directory. / 需要扫描的本地目录；相对路径基于工作目录解析。
+     * working directory. Empty by default — no local directory is scanned
+     * unless configured here or registered from code via
+     * {@code JarUtil#addScanDirectories(File...)}.
+     * <p>
+     * 需要扫描的本地目录；相对路径基于工作目录解析。默认为空——除非在此配置
+     * 或通过 {@code JarUtil#addScanDirectories(File...)} 从代码注册，
+     * 否则不扫描任何本地目录。
      */
-    public String[] scanDirectories = new String[]{"data"};
+    public String[] scanDirectories = new String[]{};
 
     /**
      * Whether to descend into subdirectories while scanning local directories.
@@ -69,8 +79,11 @@ public class JarUtilsConfig {
         scanDirectories = configuration.getStringList(
                 "scanDirectories", CATEGORY_SCAN, scanDirectories,
                 "Local directories to scan additionally, relative paths are resolved "
-                        + "against the working directory, e.g. data, textures. "
-                        + "/ 额外扫描的本地目录，相对路径基于工作目录解析，如 data、textures。");
+                        + "against the working directory, e.g. data, textures. Empty by default; "
+                        + "developers may also register directories from code via "
+                        + "JarUtil.addScanDirectories. "
+                        + "/ 额外扫描的本地目录，相对路径基于工作目录解析，如 data、textures。"
+                        + "默认留空；开发者也可通过 JarUtil.addScanDirectories 从代码注册目录。");
         recursiveScan = configuration.getBoolean(
                 "recursiveScan", CATEGORY_SCAN, recursiveScan,
                 "Whether to descend into subdirectories while scanning local directories. "
