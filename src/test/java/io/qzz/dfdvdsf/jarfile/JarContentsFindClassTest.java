@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -214,7 +215,17 @@ public class JarContentsFindClassTest {
                 "META-INF/mcmod.info", bytes("{\"modid\":\"gamma\"}")));
 
         List<File> providers = new java.util.ArrayList<File>();
+        // File.listFiles() gives no ordering guarantee and differs across
+        // platforms (Windows vs CI Linux), so sort by name for stable results.
+        // File.listFiles() 不保证返回顺序，且跨平台（Windows 与 CI Linux）
+        // 表现不同，因此按文件名排序以保证结果稳定。
         File[] jars = modsDir.listFiles();
+        Arrays.sort(jars, new Comparator<File>() {
+            @Override
+            public int compare(File a, File b) {
+                return a.getName().compareTo(b.getName());
+            }
+        });
         for (File jar : jars) {
             if (!JarNames.isJarFile(jar)) {
                 continue;
