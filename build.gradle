@@ -91,9 +91,9 @@ dependencies {
         implementation "curse.maven:MysteriumLib-645051:3963822"
     }
 
-    implementation "maven.modrinth:notenoughitems-unofficial:${project.nei_version}-GTNH"
-    implementation "maven.modrinth:codechickencore-unofficial:${project.cc_version}"
-    implementation "maven.modrinth:codechickenlib-unofficial:${project.cc_version}"
+    runtimeOnly "maven.modrinth:notenoughitems-unofficial:${project.nei_version}-GTNH"
+    runtimeOnly "maven.modrinth:codechickencore-unofficial:${project.cc_version}"
+    runtimeOnly "maven.modrinth:codechickenlib-unofficial:${project.cc_version}"
 
     implementation "com.github.song682:CatFrame:v0.5.8"
     implementation fileTree(dir: 'lib', includes: ['*.jar'])
